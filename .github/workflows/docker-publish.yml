@@ -6,40 +6,44 @@ on:
   release:
     # Only runs on full releases not pre releases
     types: [released]
+  workflow_dispatch:
 
 env:
-  # This should allow creation of docker images even in forked repositories
-  # Image name may not contain uppercase characters, so we can not use the repository name
-  # Creates a string like: ghcr.io/SillyTavern/sillytavern
-  image_name: ghcr.io/sillytavern/sillytavern
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-
-  build:
-
+  build-and-push-image:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
-
-      # Build docker image using dockerfile and tag it with branch name
-      # Assumes branch name is the version number
-      - name: Build the Docker image
-        run: |
-          docker build . --file Dockerfile --tag $image_name:${{ github.ref_name }}
-
+        uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
       # Login into package repository as the person who created the release
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v1
+        uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Assumes release is the latest and marks image as such
-      - name: Docker Tag and Push
-        run: |
-          docker tag $image_name:${{ github.ref_name }} $image_name:latest
-          docker push $image_name:${{ github.ref_name }}
-          docker push $image_name:latest
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: ${{ github.ref_name }}, latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          
